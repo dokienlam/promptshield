@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>promptshield · dashboard</title>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #14171c; --border: #21262d;
+    --text: #e6edf3; --muted: #7d8590; --accent: #58a6ff;
+    --red: #f85149; --yellow: #d29922; --green: #3fb950; --blue: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header .badge { background: var(--panel); border: 1px solid var(--border); padding: 2px 8px; border-radius: 10px; font-size: 11px; color: var(--muted); }
+  main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .card .value { font-size: 28px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card.blocked .value { color: var(--red); }
+  .card.redacted .value { color: var(--yellow); }
+  .card.flagged .value { color: var(--blue); }
+  .card.passed .value { color: var(--green); }
+  section h2 { font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 24px 0 12px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  th { background: #1c2128; color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+  tr:last-child td { border-bottom: none; }
+  td.mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+  .pill.blocked { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+  .pill.redacted { background: rgba(210, 153, 34, 0.15); color: var(--yellow); }
+  .pill.flagged { background: rgba(88, 166, 255, 0.15); color: var(--blue); }
+  .pill.passed { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+  .pill.high { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+  .pill.medium { background: rgba(210, 153, 34, 0.15); color: var(--yellow); }
+  .pill.low { background: rgba(125, 133, 144, 0.2); color: var(--muted); }
+  .findings { display: flex; flex-wrap: wrap; gap: 4px; }
+  .empty { padding: 32px; text-align: center; color: var(--muted); }
+  footer { padding: 24px; text-align: center; color: var(--muted); font-size: 12px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>🛡️ promptshield</h1>
+    <span class="badge" id="status">live</span>
+  </header>
+
+  <main>
+    <div class="grid" id="stats-grid">
+      <div class="card"><div class="label">Total requests</div><div class="value" id="stat-total">—</div></div>
+      <div class="card blocked"><div class="label">Blocked</div><div class="value" id="stat-blocked">—</div></div>
+      <div class="card redacted"><div class="label">Redacted</div><div class="value" id="stat-redacted">—</div></div>
+      <div class="card flagged"><div class="label">Flagged</div><div class="value" id="stat-flagged">—</div></div>
+      <div class="card passed"><div class="label">Passed</div><div class="value" id="stat-passed">—</div></div>
+      <div class="card"><div class="label">Last 24h</div><div class="value" id="stat-24h">—</div></div>
+      <div class="card"><div class="label">Avg latency</div><div class="value" id="stat-latency">—</div></div>
+    </div>
+
+    <section>
+      <h2>Top triggered rules</h2>
+      <table id="rules-table">
+        <thead><tr><th>Category</th><th>Rule</th><th style="text-align:right">Count</th></tr></thead>
+        <tbody id="rules-body"><tr><td colspan="3" class="empty">No rules triggered yet.</td></tr></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Recent requests</h2>
+      <table id="recent-table">
+        <thead><tr><th>Time</th><th>Provider</th><th>Path</th><th>Action</th><th>Findings</th><th style="text-align:right">Status</th><th style="text-align:right">Latency</th></tr></thead>
+        <tbody id="recent-body"><tr><td colspan="7" class="empty">No requests yet — send traffic to the proxy at <code>:8080</code>.</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer>
+    promptshield — open source LLM security gateway · <a href="https://github.com/dokienlam/promptshield">GitHub</a>
+  </footer>
+
+<script>
+async function refresh() {
+  try {
+    const [statsRes, recentRes] = await Promise.all([
+      fetch('/api/stats').then(r => r.json()),
+      fetch('/api/recent?limit=50').then(r => r.json()),
+    ]);
+    renderStats(statsRes);
+    renderRecent(recentRes);
+    document.getElementById('status').textContent = 'live';
+  } catch (e) {
+    document.getElementById('status').textContent = 'error';
+  }
+}
+function renderStats(s) {
+  document.getElementById('stat-total').textContent = s.total ?? 0;
+  document.getElementById('stat-blocked').textContent = s.blocked ?? 0;
+  document.getElementById('stat-redacted').textContent = s.redacted ?? 0;
+  document.getElementById('stat-flagged').textContent = s.flagged ?? 0;
+  document.getElementById('stat-passed').textContent = s.passed ?? 0;
+  document.getElementById('stat-24h').textContent = s.last_24h ?? 0;
+  document.getElementById('stat-latency').textContent = (s.avg_latency_ms ?? 0).toFixed(0) + ' ms';
+  const body = document.getElementById('rules-body');
+  if (!s.top_rules || s.top_rules.length === 0) {
+    body.innerHTML = '<tr><td colspan="3" class="empty">No rules triggered yet.</td></tr>';
+    return;
+  }
+  body.innerHTML = s.top_rules.map(r =>
+    `<tr><td>${escapeHTML(r.category)}</td><td class="mono">${escapeHTML(r.rule)}</td><td style="text-align:right">${r.count}</td></tr>`
+  ).join('');
+}
+function renderRecent(rows) {
+  const body = document.getElementById('recent-body');
+  if (!rows || rows.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">No requests yet — send traffic to the proxy at <code>:8080</code>.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(r => {
+    const ts = new Date(r.timestamp).toLocaleString();
+    const action = `<span class="pill ${r.action}">${r.action}</span>`;
+    const findings = (r.findings || []).map(f =>
+      `<span class="pill ${f.severity}" title="${escapeHTML(f.match || '')}">${escapeHTML(f.rule)}</span>`
+    ).join('');
+    return `<tr>
+      <td class="mono">${escapeHTML(ts)}</td>
+      <td>${escapeHTML(r.provider || '')}</td>
+      <td class="mono">${escapeHTML(r.path || '')}</td>
+      <td>${action}</td>
+      <td><div class="findings">${findings}</div></td>
+      <td style="text-align:right">${r.status || ''}</td>
+      <td style="text-align:right">${r.latency_ms || 0}ms</td>
+    </tr>`;
+  }).join('');
+}
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

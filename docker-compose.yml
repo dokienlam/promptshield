@@ -1,0 +1,14 @@
+services:
+  promptshield:
+    build: .
+    image: promptshield:latest
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    volumes:
+      - promptshield-data:/data
+    restart: unless-stopped
+    command: ["--listen", ":8080", "--dashboard", ":8081", "--db", "/data/promptshield.db", "--mode", "block"]
+
+volumes:
+  promptshield-data:
